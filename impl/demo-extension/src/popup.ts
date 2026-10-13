@@ -6,7 +6,7 @@
 // poll cadence while it is open and stops driving it when it closes, while the
 // worker itself stays booted in the offscreen document.
 
-import { PRESETS, type Preset } from "./presets.js";
+import { CHAINS, PRESETS, type Preset } from "./presets.js";
 
 declare const chrome: {
   runtime: { sendMessage(msg: unknown): Promise<unknown> };
@@ -15,17 +15,6 @@ declare const chrome: {
 const POLL_MS = 12_000; // ~mainnet block time
 const DEFAULT_WATCH = "0x00000000219ab540356cBB839Cbe05303d7705Fa"; // beacon deposit contract
 
-// Probed in order on first use to prefill the RPC fields, same list and same
-// order as the web demo. All mainnet; the web demo also needs them CORS-open,
-// which this does not — the popup fetches under the extension's host
-// permissions. Availability shifts, hence a probe rather than a hardcoded one.
-const PUBLIC_RPCS = [
-  "https://ethereum-rpc.publicnode.com",
-  "https://eth.drpc.org",
-  "https://1rpc.io/eth",
-  "https://cloudflare-eth.com",
-];
-
 type Settings = {
   bootstrap: string;
   workerRpc: string;
@@ -33,6 +22,7 @@ type Settings = {
   config: string;
   watch: string;
   preset?: string;
+  bootstraps?: Record<string, string>;
 };
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -165,37 +155,60 @@ function saveTyped(): void {
   }, 300);
 }
 
-/**
- * Fill the RPC fields from the first public endpoint that answers as mainnet.
- *
- * Only ever runs when nothing is saved, and never overwrites a field the user
- * has already typed into — the probe is slower than a person is, so it can
- * finish after they have started.
- */
-async function prefillRpcs(): Promise<void> {
-  const restore = els.bootstrap.placeholder;
-  els.bootstrap.placeholder = "checking public RPCs…";
-  try {
-    for (const url of PUBLIC_RPCS) {
-      try {
-        const resp = await fetch(url, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}',
-          signal: AbortSignal.timeout(4000),
-        });
-        const body = (await resp.json()) as { result?: string };
-        if (body.result !== "0x1") continue;
-        if (!els.bootstrap.value) els.bootstrap.value = url;
-        if (!els.workerRpc.value) els.workerRpc.value = url;
-        return;
-      } catch {
-        // endpoint down, slow, or not answering as mainnet: try the next
-      }
+/* --- bootstrap RPC per chain --------------------------------------------
+   The bootstrap RPC reads the specifier, so it has to be on the chain the
+   specifier is published on. The field tracks which chain it was filled for;
+   moving to a preset on another chain swaps in the URL proven there, or probes
+   for one. Availability shifts, hence a probe rather than a hardcoded URL. */
+
+/** Proven bootstrap URLs by chain, as the service worker last reported them. */
+let bootstraps: Record<string, string> = {};
+/** Chain the bootstrap field holds a URL for. */
+let bootstrapChain: number | undefined;
+
+/** The first public RPC on `chainId` that answers as that chain. */
+async function probeRpc(chainId: number): Promise<string | undefined> {
+  const want = "0x" + chainId.toString(16);
+  for (const url of CHAINS[chainId]?.rpcs ?? []) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}',
+        signal: AbortSignal.timeout(4000),
+      });
+      const body = (await resp.json()) as { result?: string };
+      if (body.result === want) return url;
+    } catch {
+      // endpoint down, slow, or not answering as this chain: try the next
     }
-  } finally {
-    els.bootstrap.placeholder = restore;
   }
+  return undefined;
+}
+
+/**
+ * Probe for an RPC on `chainId` into an empty field. Never overwrites one the
+ * user has typed into meanwhile — the probe is slower than a person is — nor
+ * fills the bootstrap field for a chain the picker has since moved off.
+ */
+async function prefill(input: HTMLInputElement, chainId: number): Promise<void> {
+  const restore = input.placeholder;
+  input.placeholder = `checking public ${CHAINS[chainId].name} RPCs…`;
+  try {
+    const url = await probeRpc(chainId);
+    const stale = input === els.bootstrap && bootstrapChain !== chainId;
+    if (url && !input.value && !stale) input.value = url;
+  } finally {
+    input.placeholder = restore;
+  }
+}
+
+/** Point the bootstrap field at `chainId`, if it is not already there. */
+function useChain(chainId: number): void {
+  if (chainId === bootstrapChain && els.bootstrap.value) return;
+  bootstrapChain = chainId;
+  els.bootstrap.value = bootstraps[chainId] ?? "";
+  if (!els.bootstrap.value) void prefill(els.bootstrap, chainId);
 }
 
 /* --- presets ------------------------------------------------------------ */
@@ -208,7 +221,8 @@ const presetBySpecifier = (addr: string): Preset | undefined =>
 for (const p of PRESETS) {
   const opt = document.createElement("option");
   opt.value = p.id;
-  opt.textContent = p.label;
+  const chain = p.chainId === undefined ? undefined : CHAINS[p.chainId];
+  opt.textContent = chain?.testnet ? `${p.label} (${chain.name} testnet)` : p.label;
   els.preset.append(opt);
 }
 
@@ -219,6 +233,7 @@ function renderPreset(p: Preset): void {
 
 function applyPreset(p: Preset): void {
   if (p.specifier) els.specifier.value = p.specifier;
+  if (p.chainId !== undefined) useChain(p.chainId);
   // Always assigned, blank included: switching worker must not leave the
   // previous one's config behind for this one to be started with.
   els.config.value = p.config;
@@ -356,6 +371,7 @@ els.specifier.addEventListener("input", () => {
   if (match.id !== els.preset.value) {
     els.preset.value = match.id;
     renderPreset(match);
+    if (match.chainId !== undefined) useChain(match.chainId);
   }
   saveTyped();
 });
@@ -375,6 +391,12 @@ void (async () => {
   }>({ type: "status" });
 
   for (const f of fields) els[f].value = settings[f] ?? "";
+  bootstraps = settings.bootstraps ?? {};
+  // Saves from before bootstraps existed were all mainnet.
+  if (settings.bootstrap) {
+    const hit = Object.entries(bootstraps).find(([, url]) => url === settings.bootstrap);
+    bootstrapChain = hit ? Number(hit[0]) : 1;
+  }
   if (!els.watch.value) els.watch.value = DEFAULT_WATCH;
 
   // Whatever happened while this popup did not exist is in the service
@@ -385,12 +407,19 @@ void (async () => {
     ? (presetBySpecifier(els.specifier.value) ?? CUSTOM)
     : presetById(settings.preset ?? PRESETS[0].id);
   els.preset.value = initial.id;
-  if (els.specifier.value) renderPreset(initial);
-  else applyPreset(initial);
+  // While a worker runs, its fields are the ones in force: leave them be.
+  if (runtime.running) renderPreset(initial);
+  else if (els.specifier.value) {
+    renderPreset(initial);
+    if (initial.chainId !== undefined) useChain(initial.chainId);
+  } else applyPreset(initial);
 
-  // Nothing proven yet: find an endpoint that works rather than leaving the
-  // two RPC fields blank for the reader to fill in by hand.
-  if (!els.bootstrap.value || !els.workerRpc.value) void prefillRpcs();
+  // Nothing proven yet: find endpoints that work rather than leaving the RPC
+  // fields blank. The bootstrap follows the preset's chain (custom gets
+  // mainnet); the worker RPC is mainnet whichever worker is picked, since
+  // that is where the watched balance lives.
+  if (!els.bootstrap.value) useChain(bootstrapChain ?? initial.chainId ?? 1);
+  if (!els.workerRpc.value) void prefill(els.workerRpc, 1);
 
   if (runtime.lastBalance) {
     // Shown before the first poll of this popup so a reopen is not blank; the

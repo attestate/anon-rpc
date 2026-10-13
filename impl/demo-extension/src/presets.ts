@@ -11,6 +11,7 @@ type KnownWorker = {
   id: string;
   label: string;
   specifier: string;
+  chainId?: number;
   note?: string;
   exampleConfig?: unknown;
   exampleConfigNote?: string;
@@ -20,6 +21,12 @@ export type Preset = {
   id: string;
   label: string;
   specifier: string;
+  /**
+   * The chain the specifier is published on, so the chain the bootstrap RPC
+   * must answer for. Custom has none. Not the worker RPC's chain: a worker
+   * published on a testnet can still watch a mainnet balance.
+   */
+  chainId?: number;
   /** JSON text prefilled into the config box; blank when there is no example. */
   config: string;
   note?: string;
@@ -51,11 +58,38 @@ function prettyJson(value: unknown, indent = ""): string {
   return JSON.stringify(value) ?? "null";
 }
 
+// The chains a preset may be published on, each with public RPCs probed in
+// order to prefill the RPC fields. Same lists and order as the web demo; that
+// one also needs them CORS-open, which this does not — the popup fetches under
+// the extension's host permissions.
+export const CHAINS: Record<number, { name: string; testnet?: boolean; rpcs: string[] }> = {
+  1: {
+    name: "mainnet",
+    rpcs: [
+      "https://ethereum-rpc.publicnode.com",
+      "https://eth.drpc.org",
+      "https://1rpc.io/eth",
+      "https://cloudflare-eth.com",
+    ],
+  },
+  11155111: {
+    name: "Sepolia",
+    testnet: true,
+    rpcs: [
+      "https://ethereum-sepolia-rpc.publicnode.com",
+      "https://sepolia.drpc.org",
+      "https://1rpc.io/sepolia",
+      "https://sepolia.gateway.tenderly.co",
+    ],
+  },
+};
+
 export const PRESETS: Preset[] = [
   ...__ADOPTERS__.workers.map((w) => ({
     id: w.id,
     label: w.label,
     specifier: w.specifier,
+    chainId: w.chainId ?? 1,
     config: w.exampleConfig === undefined ? "" : prettyJson(w.exampleConfig),
     note: w.note,
     configNote: w.exampleConfigNote,

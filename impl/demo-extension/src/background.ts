@@ -19,6 +19,7 @@
 // offscreen document handed back the worker it already had.
 
 import { AnonRpcWorker } from "@anon-rpc/browser-extension-harness";
+import { CHAINS, PRESETS } from "./presets.js";
 
 declare const chrome: {
   runtime: {
@@ -41,6 +42,11 @@ export type Settings = {
   config: string;
   watch: string;
   preset?: string;
+  /**
+   * Proven bootstrap URLs by chain id, so the popup can bring back the one
+   * that worked on a preset's chain. `bootstrap` is whichever was proven last.
+   */
+  bootstraps?: Record<string, string>;
 };
 
 type Runtime = {
@@ -193,6 +199,19 @@ async function ensureWorker(s: Settings): Promise<{ worker: AnonRpcWorker; bootM
   const before = providerCalls;
   const t0 = Date.now();
 
+  // Ask the bootstrap RPC which chain it is on before the specifier read does.
+  // A preset on another chain would otherwise fail as an opaque revert from an
+  // address with no contract, and the answer keys the URL's persistence below.
+  // Called directly, not through the provider: it is not a §4 read.
+  const chainId = Number(await bootstrapCall("eth_chainId", []));
+  const want = PRESETS.find((p) => p.id === s.preset)?.chainId;
+  if (want !== undefined && chainId !== want) {
+    throw new Error(
+      `bootstrap RPC is on chain ${chainId}, but this worker is published on ` +
+        `${CHAINS[want]?.name ?? "chain"} (${want})`,
+    );
+  }
+
   const w = new AnonRpcWorker({
     address: s.specifier,
     config: parseConfig(s.config),
@@ -216,7 +235,10 @@ async function ensureWorker(s: Settings): Promise<{ worker: AnonRpcWorker; bootM
   workerKey = key;
 
   // A worker booted through this bootstrap URL: it has earned persistence.
-  await mergeSaved({ bootstrap: s.bootstrap });
+  await mergeSaved({
+    bootstrap: s.bootstrap,
+    bootstraps: { ...(await loadSaved()).bootstraps, [chainId]: s.bootstrap },
+  });
   // §4's specifier read goes through the provider above. If it never fired,
   // nothing was re-read, re-fetched or re-verified — the offscreen document
   // returned a worker it already had booted.

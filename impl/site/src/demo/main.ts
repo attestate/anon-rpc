@@ -23,10 +23,16 @@ const DEFAULT_WATCH = "0x00000000219ab540356cBB839Cbe05303d7705Fa";
 // too: it edits and parses JSON without knowing what any key means. A worker
 // with an example config gets it as its starting value; every other preset
 // starts blank.
+//
+// `chainId` is the chain the specifier is published on, so the chain the
+// bootstrap RPC must answer for; "custom" and "local" have none and leave that
+// field alone. It says nothing about the worker RPC: a worker published on a
+// testnet can still watch a mainnet balance.
 type Preset = {
   id: string;
   label: string;
   specifier: string;
+  chainId?: number;
   config: string;
   note?: string;
   configNote?: string;
@@ -36,6 +42,7 @@ type KnownWorker = {
   id: string;
   label: string;
   specifier: string;
+  chainId?: number;
   note?: string;
   exampleConfig?: unknown;
   exampleConfigNote?: string;
@@ -73,6 +80,7 @@ const PRESETS: Preset[] = [
     id: w.id,
     label: w.label,
     specifier: w.specifier,
+    chainId: w.chainId ?? 1,
     config: w.exampleConfig === undefined ? "" : prettyJson(w.exampleConfig),
     note: w.note,
     configNote: w.exampleConfigNote,
@@ -185,14 +193,30 @@ function localProvider(local: LocalWorker) {
 const presetById = (id: string): Preset => PRESETS.find((p) => p.id === id) ?? CUSTOM;
 const presetBySpecifier = (addr: string): Preset | undefined =>
   PRESETS.find((p) => p.specifier && p.specifier.toLowerCase() === addr.toLowerCase());
-// Probed in order on first visit to prefill the RPC fields (all mainnet,
-// CORS-open). Availability shifts, hence the probe rather than a hardcode.
-const PUBLIC_RPCS = [
-  "https://ethereum-rpc.publicnode.com",
-  "https://eth.drpc.org",
-  "https://1rpc.io/eth",
-  "https://cloudflare-eth.com",
-];
+// The chains a preset may be published on, each with public RPCs probed in
+// order to prefill the RPC fields (all CORS-open). Availability shifts, hence
+// the probe rather than a hardcode.
+const CHAINS: Record<number, { name: string; testnet?: boolean; rpcs: string[] }> = {
+  1: {
+    name: "mainnet",
+    rpcs: [
+      "https://ethereum-rpc.publicnode.com",
+      "https://eth.drpc.org",
+      "https://1rpc.io/eth",
+      "https://cloudflare-eth.com",
+    ],
+  },
+  11155111: {
+    name: "Sepolia",
+    testnet: true,
+    rpcs: [
+      "https://ethereum-sepolia-rpc.publicnode.com",
+      "https://sepolia.drpc.org",
+      "https://1rpc.io/sepolia",
+      "https://sepolia.gateway.tenderly.co",
+    ],
+  },
+};
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const els = {
@@ -417,6 +441,10 @@ type Settings = {
   // Which preset the picker shows. Persisted but not one of `fields` below: it
   // backs a <select>, and the specifier address is what actually decides it.
   preset?: string;
+  // Proven bootstrap URLs by chain id, so switching between presets on
+  // different chains brings back the one that worked there. `bootstrap` above
+  // is whichever of these was proven last.
+  bootstraps?: Record<string, string>;
 };
 // The text controls, in the order they appear (the config one is a textarea, but
 // .value and .disabled are all this needs). Driven generically for prefill and
@@ -440,7 +468,8 @@ function persist(patch: Partial<Settings>): void {
 for (const p of PRESETS) {
   const opt = document.createElement("option");
   opt.value = p.id;
-  opt.textContent = p.label;
+  const chain = p.chainId === undefined ? undefined : CHAINS[p.chainId];
+  opt.textContent = chain?.testnet ? `${p.label} (${chain.name} testnet)` : p.label;
   els.preset.append(opt);
 }
 
@@ -468,6 +497,65 @@ function renderPreset(p: Preset): void {
   els.configNote.textContent = p.configNote ?? "";
 }
 
+/* --- bootstrap RPC per chain ---
+   The bootstrap RPC reads the specifier, so it has to be on the chain the
+   specifier is published on. The field tracks which chain it was filled for;
+   moving to a preset on another chain swaps in the URL proven there, or probes
+   for one. */
+
+/** Chain the bootstrap field holds a URL for. Legacy saves were all mainnet. */
+let bootstrapChain: number | undefined = (() => {
+  const s = readSaved();
+  if (!s.bootstrap) return undefined;
+  const hit = Object.entries(s.bootstraps ?? {}).find(([, url]) => url === s.bootstrap);
+  return hit ? Number(hit[0]) : 1;
+})();
+
+/** The first public RPC on `chainId` that answers as that chain. */
+async function probeRpc(chainId: number): Promise<string | undefined> {
+  const want = "0x" + chainId.toString(16);
+  for (const url of CHAINS[chainId]?.rpcs ?? []) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}',
+        signal: AbortSignal.timeout(4000),
+      });
+      const body = (await resp.json()) as { result?: string };
+      if (body.result === want) return url;
+    } catch {
+      // endpoint down or slow: try the next one
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Probe for an RPC on `chainId` into an empty field, unless the user has
+ * started typing meanwhile — or, for the bootstrap field, moved to a preset on
+ * another chain.
+ */
+async function prefill(input: HTMLInputElement, chainId: number): Promise<void> {
+  const restore = input.placeholder;
+  input.placeholder = `checking public ${CHAINS[chainId].name} RPCs…`;
+  try {
+    const url = await probeRpc(chainId);
+    const stale = input === els.bootstrap && bootstrapChain !== chainId;
+    if (url && !input.value && !stale) input.value = url;
+  } finally {
+    input.placeholder = restore;
+  }
+}
+
+/** Point the bootstrap field at `chainId`, if it is not already there. */
+function useChain(chainId: number): void {
+  if (chainId === bootstrapChain && els.bootstrap.value) return;
+  bootstrapChain = chainId;
+  els.bootstrap.value = readSaved().bootstraps?.[chainId] ?? "";
+  if (!els.bootstrap.value) void prefill(els.bootstrap, chainId);
+}
+
 /** Adopt a preset: fill the fields it prescribes, then re-render. */
 function applyPreset(p: Preset): void {
   if (p.id === LOCAL.id) {
@@ -482,6 +570,7 @@ function applyPreset(p: Preset): void {
     els.specifier.value = p.specifier;
     persist({ specifier: p.specifier });
   }
+  if (p.chainId !== undefined) useChain(p.chainId);
   // Always assigned, blank included: switching preset must not leave the
   // previous worker's config behind for this one to be started with.
   els.config.value = p.config;
@@ -511,7 +600,10 @@ const initial =
     : presetById(saved.preset ?? PRESETS[0].id));
 els.preset.value = initial.id;
 if (linkedPreset || !els.specifier.value) applyPreset(initial);
-else renderPreset(initial);
+else {
+  renderPreset(initial);
+  if (initial.chainId !== undefined) useChain(initial.chainId);
+}
 
 els.preset.addEventListener("change", () => applyPreset(presetById(els.preset.value)));
 
@@ -528,6 +620,7 @@ els.specifier.addEventListener("input", () => {
     els.preset.value = match.id;
     persist({ preset: match.id });
     renderPreset(match);
+    if (match.chainId !== undefined) useChain(match.chainId);
   }
 });
 els.config.addEventListener("input", () => persist({ config: els.config.value }));
@@ -537,36 +630,12 @@ els.copy.addEventListener("click", () => {
   els.workerRpc.value = els.bootstrap.value;
 });
 
-// No proven RPC saved yet: probe the public list in order and prefill with
-// the first endpoint that answers eth_chainId with mainnet (unless the user
-// has started typing meanwhile).
-if (!saved.bootstrap) {
-  void (async () => {
-    const restore = els.bootstrap.placeholder;
-    els.bootstrap.placeholder = "checking public RPCs…";
-    try {
-      for (const url of PUBLIC_RPCS) {
-        try {
-          const resp = await fetch(url, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}',
-            signal: AbortSignal.timeout(4000),
-          });
-          const body = (await resp.json()) as { result?: string };
-          if (body.result !== "0x1") continue;
-          if (!els.bootstrap.value) els.bootstrap.value = url;
-          if (!els.workerRpc.value) els.workerRpc.value = url;
-          return;
-        } catch {
-          // endpoint down or slow: try the next one
-        }
-      }
-    } finally {
-      els.bootstrap.placeholder = restore;
-    }
-  })();
-}
+// Nothing proven yet: probe the public lists rather than leave the RPC fields
+// blank. The bootstrap field follows the preset's chain (custom gets mainnet);
+// the worker RPC is mainnet whichever worker is picked, since that is where
+// the watched balance lives.
+if (!els.bootstrap.value) useChain(bootstrapChain ?? presetById(els.preset.value).chainId ?? 1);
+if (!els.workerRpc.value) void prefill(els.workerRpc, 1);
 
 /* --- status --- */
 
@@ -614,7 +683,7 @@ function jsonRpc(fetchImpl: typeof fetch, url: string) {
 }
 
 function validate(): Settings {
-  const s = Object.fromEntries(fields.map((f) => [f, els[f].value.trim()])) as Settings;
+  const s = Object.fromEntries(fields.map((f) => [f, els[f].value.trim()])) as unknown as Settings;
   const isUrl = (u: string) => /^https?:\/\//.test(u);
   const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
   if (els.preset.value === LOCAL.id && !localWorker) {
@@ -733,6 +802,33 @@ async function start(): Promise<void> {
   );
 
   const bootstrapCall = local ? undefined : jsonRpc(fetch, s.bootstrap);
+
+  // Ask the bootstrap RPC which chain it is on before the specifier read does.
+  // A preset on another chain would otherwise fail as an opaque revert from an
+  // address with no contract, and the answer keys the URL's persistence below.
+  let chainId: number | undefined;
+  if (bootstrapCall) {
+    const want = presetById(els.preset.value).chainId;
+    try {
+      chainId = Number(await bootstrapCall("eth_chainId", []));
+    } catch (e) {
+      if (!running) return;
+      logLine("demo", "error", `bootstrap RPC unreachable: ${(e as Error).message}`);
+      setStatus("error", `bootstrap RPC unreachable: ${(e as Error).message}`);
+      stop(true);
+      return;
+    }
+    if (!running) return; // stopped while asking
+    if (want !== undefined && chainId !== want) {
+      const msg =
+        `bootstrap RPC is on chain ${chainId}, but this worker is published on ` +
+        `${CHAINS[want]?.name ?? "chain"} (${want})`;
+      logLine("demo", "error", msg);
+      setStatus("error", msg);
+      stop(true);
+      return;
+    }
+  }
   worker = new AnonRpcWorker({
     address: local ? local.address : s.specifier,
     config: parseConfig(s.config),
@@ -763,7 +859,12 @@ async function start(): Promise<void> {
 
   // A worker booted through this bootstrap RPC: it has earned persistence.
   // A local run used none, so there is nothing to have earned it.
-  if (!local) persist({ bootstrap: s.bootstrap });
+  if (!local) {
+    persist({
+      bootstrap: s.bootstrap,
+      bootstraps: { ...readSaved().bootstraps, [chainId!]: s.bootstrap },
+    });
+  }
 
   // `worker.ready` fulfilled: the hash-verified bundle is running in the
   // sandbox. tick() takes over the status from its first in-flight request.

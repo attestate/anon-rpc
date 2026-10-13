@@ -40,6 +40,18 @@
       url: "https://nym.com/",
       note: "Runs a Nym mixnet client compiled to WebAssembly inside the sandbox. Requests travel as Sphinx packets through the mixnet and leave at a Nym IP Packet Router, so the RPC endpoint sees the router's address, not yours. The bundle is about 18 MB and the mixnet takes a few seconds to bootstrap.",
     },
+    {
+      id: "nox",
+      label: "Nox — fetch over a Sphinx mixnet",
+      specifier: "0x35133267A8F7EC35046a83DCA0f4Ca8A6e1b7A9A",
+      // Optional; absent means Ethereum mainnet (1). The chain the specifier
+      // contract lives on — so the chain a wallet's bootstrap RPC must read it
+      // from — not the chain the anonymized fetch can reach.
+      chainId: 11155111,
+      kind: "network",
+      url: "https://demo.nox.hisoka.io/anon-rpc",
+      note: "Wraps each request in Sphinx packets routed through entry, mix and exit nodes, dialled over KPS. TLS to an https RPC runs inside the worker, so the exit node relays the request without reading it. Mixing adds per-hop delay, so expect slower responses than a direct fetch.",
+    },
   ],
 
   // Wallets and apps shipping anon-rpc to users (the hosts of SPEC.md §2). None

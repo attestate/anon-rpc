@@ -13,8 +13,9 @@ This is a variant of [`@anon-rpc/browser-harness`](../browser-harness), not a
 reimplementation — it depends on it and runs it. The isolation, the §7
 capability API, §8's call discipline, §9 payloads, §10's KPS bridge and §11
 storage are all that package's. What this one adds is the two things an
-extension changes about *where* the harness can run: a DOM to hold the iframe,
-and a packaged page to load into it.
+extension changes about *where* the harness can run: a DOM to hold the iframe —
+an offscreen document on Chromium, the background page on Firefox — and a
+packaged page to load into it.
 
 - [Install](#install)
 - [Manifest](#manifest)

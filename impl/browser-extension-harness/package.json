@@ -1,7 +1,7 @@
 {
   "name": "@anon-rpc/browser-extension-harness",
-  "version": "0.3.2",
-  "description": "anon-rpc harness for MV3 browser extensions: runs a hash-pinned anon-client worker in a null-origin sandboxed page inside an offscreen document, and exposes an anonymized fetch from the service worker.",
+  "version": "0.3.3",
+  "description": "anon-rpc harness for MV3 browser extensions (Chromium and Firefox): runs a hash-pinned anon-client worker in a null-origin sandboxed page — hosted by an offscreen document on Chromium, by the background page on Firefox — and exposes an anonymized fetch to the extension's background.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -17,6 +17,7 @@
     "privacy",
     "browser-extension",
     "manifest-v3",
+    "firefox",
     "offscreen",
     "wallet"
   ],
@@ -40,6 +41,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "CHANGELOG.md",
     "dist/background.js",
     "dist/background.js.map",
     "dist/offscreen.js",
@@ -58,7 +60,7 @@
     "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@anon-rpc/browser-harness": "0.3.2"
+    "@anon-rpc/browser-harness": "0.3.3"
   },
   "devDependencies": {
     "@noble/hashes": "^1.8.0",

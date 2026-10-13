@@ -1,4 +1,4 @@
-// §5 — the host-side harness API, for an MV3 service worker.
+// §5 — the offscreen-document mode of `AnonRpcWorker`, for an MV3 service worker.
 //
 // Same shape as the browser harness's `AnonRpcWorker`, and it is not a
 // reimplementation: the real one runs in the offscreen document and this
@@ -12,7 +12,7 @@
 // is allowed to have.
 //
 // The service worker's own lifecycle is the other half of it. Chrome kills an
-// idle service worker after ~30s, so an `AnonRpcWorker` held in a module-level
+// idle service worker after ~30s, so a worker held in a module-level
 // variable simply stops existing, and the next event constructs a new one. That
 // is why boot is cheap here: the offscreen document keeps the booted worker and
 // hands the same one back, so a reconnect costs a message rather than a
@@ -31,6 +31,7 @@ import {
   type WireRequest,
 } from "../wire.js";
 import { ASSET_PATH, assertAssetPresent } from "./assets.js";
+import { resolveIframeUrl } from "../iframe-url.js";
 import { LogQueue } from "./log-queue.js";
 
 /** §13.1 retention bound; see the browser harness for the sizing note. */
@@ -86,7 +87,7 @@ type Pending = {
   cleanup?: () => void;
 };
 
-export class AnonRpcWorker {
+export class OffscreenWorker {
   readonly ready: Promise<void>;
   fetch: typeof fetch;
 
@@ -324,21 +325,6 @@ export class AnonRpcWorker {
     this.#logs.close(err);
     this.#calls.clear();
   }
-}
-
-/**
- * An extension-relative path becomes an extension URL; an absolute URL is
- * passed through untouched.
- *
- * The pass-through matters. `chrome.runtime.getURL` does not reject an absolute
- * URL, it rewrites it into an extension one — so a caller who passed a
- * cross-origin page would have their mistake silently turned into a
- * same-origin-looking URL, and §6's same-origin check downstream would see
- * nothing wrong. Handing the original through keeps that one check meaningful.
- */
-function resolveIframeUrl(raw: string): string {
-  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw;
-  return chromeApi().runtime.getURL(raw);
 }
 
 function rehydrate(e: { name: string; message: string; code?: string }): Error {

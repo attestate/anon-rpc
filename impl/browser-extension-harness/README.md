@@ -20,6 +20,7 @@ and a packaged page to load into it.
 - [Manifest](#manifest)
 - [Use](#use)
   - [If your extension already has an offscreen document](#if-your-extension-already-has-an-offscreen-document)
+- [Firefox](#firefox)
 - [Why an extension needs its own harness](#why-an-extension-needs-its-own-harness)
 - [Remotely hosted code, and why this is allowed](#remotely-hosted-code-and-why-this-is-allowed)
 - [What the worker can and cannot reach](#what-the-worker-can-and-cannot-reach)
@@ -152,6 +153,76 @@ new AnonRpcWorker({ address, preExisting, offscreenUrl: false });
 `mountOffscreenHost()` only claims ports named `anon-rpc.worker`, so it
 coexists with whatever else that document does.
 
+## Firefox
+
+Firefox has no offscreen documents, and does not need them: its MV3 background
+is an event **page**, with a document that can hold the §6 iframe directly.
+`AnonRpcWorker` notices — no offscreen API, but a DOM — and runs the browser
+harness in place, from the same import and with the same §5 surface:
+
+```ts
+import { AnonRpcWorker } from "@anon-rpc/browser-extension-harness";
+
+const worker = new AnonRpcWorker({ address, preExisting: { rpcProvider } }); // Chrome or Firefox
+```
+
+Both modes are in the bundle, because a service worker cannot load code on
+demand (`import()` is disallowed there). The in-page mode is the browser
+harness itself, which the offscreen document's prebuilt `offscreen.js` also
+contains, so a Chromium build carries it twice — about 18 KB gzipped.
+
+Copy only the assets each browser uses: `sandbox.html` and `sandbox.js`
+everywhere, `offscreen.html` and `offscreen.js` only for Chromium. A Firefox
+build that copies the whole directory ships ~110 KB it never loads.
+
+The manifest differs from Chrome's in three places:
+
+```jsonc
+{
+  "manifest_version": 3,
+  "background": { "page": "background.html" },          // a page, not a service worker
+  "host_permissions": ["https://your-resolver.example/*"],
+  "sandbox": { "pages": ["anon-rpc/*/sandbox.html"] },
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts; script-src 'self' blob: data: 'wasm-unsafe-eval'; worker-src blob:; connect-src *;"
+  }
+  // no "offscreen" permission
+}
+```
+
+- **The boundary is the `sandbox` attribute.** §6 requires the iframe to carry
+  `sandbox="allow-scripts"`, and on Firefox that is what isolates the worker:
+  an opaque origin, no extension APIs. Measured on Firefox 140 and 157, Firefox
+  applies **no** Content Security Policy inside an extension frame that carries
+  the attribute — neither the extension's nor the manifest's `sandbox` policy,
+  even for a page listed in `sandbox.pages` (that policy only reaches the page
+  when it is loaded without the attribute, which §6 rules out). Declare the
+  page and the policy anyway: it is what Firefox 154+ would apply if it starts
+  honouring them for attributed frames, and a Firefox that instead applied the
+  extension's own policy there would block the boot script — failing closed,
+  which the e2e would catch.
+- **`data:` in `script-src`.** Firefox refuses `importScripts(blob:)` in a
+  worker whose origin is opaque — which §6 makes ours — even when a CSP allows
+  `blob:`. The browser harness detects that and loads the bundle from a `data:`
+  URL instead, with the same classic-script semantics. Chrome keeps using
+  `blob:`, so a Chrome manifest needs no change.
+- **Oldest measured: Firefox 140 (ESR).** The policy above is the narrowest one
+  measured to work where a policy applies; `'wasm-unsafe-eval'` is for bundles
+  that compile WebAssembly (tor-js does).
+
+Two things change with the host being an event page:
+
+- **Lifetime.** Firefox suspends an idle event page after about 30 seconds, and
+  the iframe and worker go with it; the next boot re-reads the specifier,
+  re-fetches and re-verifies the bundle. There is no offscreen cache to hand a
+  booted worker back, so `reuse` has no meaning here. §11 storage lives on the
+  extension's origin and survives.
+- **Retry is always fresh.** `close()` tears the worker down, and constructing a
+  new `AnonRpcWorker` boots a new one.
+
+`example-firefox/` is a complete Firefox extension, and `test/e2e-firefox.mjs`
+runs the same privilege-boundary checks as the Chromium e2e against it.
+
 ## Why an extension needs its own harness
 
 §6 isolation is a Web Worker inside a **null-origin sandboxed iframe**. That
@@ -218,6 +289,13 @@ integrity claim than "it was in the zip file" — but that is an argument, and t
 carve-out is the rule. Confirm current policy before you ship; policy moves
 faster than specs do.
 
+**Firefox (AMO) has no such carve-out.** Its policy reads "add-ons must be
+self-contained and not load remote code for execution", with no exception for
+sandboxed pages, and `addons-linter` flags `blob:` or `data:` in
+`content_security_policy.sandbox` for manual review. Expect to explain the
+arrangement to a reviewer — the isolation and the on-chain hash pin are the
+argument — or to ship the bundle inside the extension.
+
 ## What the worker can and cannot reach
 
 The privilege boundary is the point of the whole arrangement, so the e2e
@@ -253,6 +331,11 @@ this reason. CI installs it with `npx playwright install --with-deps chromium`.
 
 `example/` is a complete, loadable extension. `chrome://extensions` →
 Developer mode → Load unpacked, after assembling it the way `test/e2e.mjs` does.
+
+The Firefox e2e (`test/e2e-firefox.mjs`) installs `example-firefox/` as a
+temporary add-on through geckodriver — Playwright's Firefox cannot load
+extensions — and skips itself unless `FIREFOX_BIN` and `GECKODRIVER` point at a
+Firefox (140+) and a geckodriver.
 
 ## Status
 

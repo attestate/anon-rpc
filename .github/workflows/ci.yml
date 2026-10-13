@@ -50,6 +50,19 @@ jobs:
       # extension support — installing "chromium" brings both.
       - run: npx playwright install --with-deps chromium
 
+      # Firefox for the browser-extension Firefox e2e. Playwright's Firefox
+      # cannot load extensions, so it is a real Firefox driven through
+      # geckodriver.
+      - uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: latest
+      - uses: browser-actions/setup-geckodriver@latest
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          echo "FIREFOX_BIN=$(command -v firefox)" >> "$GITHUB_ENV"
+          echo "GECKODRIVER=$(command -v geckodriver)" >> "$GITHUB_ENV"
+
       # Workspace tests: browser-harness unit suite (node --test), the
       # browser-extension e2e and the demo-extension test (both load a real
       # unpacked MV3 extension into Chromium), the node-harness e2e (a QuickJS

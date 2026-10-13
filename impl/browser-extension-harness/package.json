@@ -21,6 +21,11 @@
     "wallet"
   ],
   "main": "./dist/background.js",
+  "typesVersions": {
+    "*": {
+      "offscreen": ["./dist/types/offscreen/index.d.ts"]
+    }
+  },
   "types": "./dist/types/background/index.d.ts",
   "exports": {
     ".": {

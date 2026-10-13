@@ -1,8 +1,10 @@
-// The package's test entry: unit tests for the wire codec, then the e2e.
+// The package's test entry: unit tests for the wire codec, then the e2es.
 //
 // The split matters. The codec can be checked anywhere; everything else about
-// this package is a browser-extension mechanic that only Chromium can answer,
-// so the e2e is not optional colour — it is the test.
+// this package is a browser-extension mechanic that only a browser can answer,
+// so the e2es are not optional colour — they are the test. The Firefox one
+// skips itself unless FIREFOX_BIN and GECKODRIVER point at a Firefox and
+// a geckodriver (CI provides both).
 
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
@@ -17,3 +19,4 @@ const run = (file, label) =>
 
 await run("wire.test.mjs", "wire tests");
 await run("e2e.mjs", "extension e2e");
+await run("e2e-firefox.mjs", "Firefox extension e2e");

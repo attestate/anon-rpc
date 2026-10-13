@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "anon-rpc example (Firefox)",
+  "version": "0.0.1",
+  "description": "Minimal Firefox MV3 extension that answers RPC through a hash-pinned anon-rpc worker, hosted in its background page.",
+
+  "//browser_specific_settings": "140 is the oldest Firefox this was measured on (ESR). The isolation comes from the iframe's sandbox attribute, which Firefox has long supported.",
+  "browser_specific_settings": {
+    "gecko": { "id": "example@anon-rpc.test", "strict_min_version": "140.0" }
+  },
+
+  "//background": "Firefox's MV3 background is an event page with a DOM, so it holds the sandboxed iframe itself. No offscreen document — Firefox has none and needs none.",
+  "background": { "page": "background.html" },
+
+  "//host_permissions": "For the background page's fetch of the worker bundle, which is hash-verified (§4). The worker's own fetches do NOT use these: it runs at a null origin.",
+  "host_permissions": ["http://127.0.0.1/*"],
+
+  "//sandbox": "Firefox 154+ honours this, but measured on 140 and 157, Firefox applies no CSP inside an extension frame that carries the iframe sandbox attribute — and §6 requires that attribute. The policy below is declared so the page is right if Firefox starts applying it; the attribute's opaque origin is the boundary today.",
+  "sandbox": { "pages": ["anon-rpc/*/sandbox.html"] },
+
+  "content_security_policy": {
+    "//sandbox": "As on Chrome, plus data: in script-src: Firefox refuses importScripts(blob:) in an opaque-origin worker, so the harness loads the bundle from a data: URL there. 'wasm-unsafe-eval' is for worker bundles compiled to WebAssembly. No 'unsafe-eval' or 'unsafe-inline' is needed.",
+    "sandbox": "sandbox allow-scripts; script-src 'self' blob: data: 'wasm-unsafe-eval'; worker-src blob:; connect-src *;"
+  }
+}

@@ -43,7 +43,7 @@
     {
       id: "nox",
       label: "Nox — fetch over a Sphinx mixnet",
-      specifier: "0xDf5Db854BA75B52a4bF1a250a93D8d25cB982b2d",
+      specifier: "0x35133267A8F7EC35046a83DCA0f4Ca8A6e1b7A9A",
       // Optional; absent means Ethereum mainnet (1). The chain the specifier
       // contract lives on — so the chain a wallet's bootstrap RPC must read it
       // from — not the chain the anonymized fetch can reach.

@@ -32,6 +32,14 @@
       },
       exampleConfigNote: "Demonstration gateway only: limited capacity, and it may disappear at any time — run your own for anything real. Browsers cannot open the raw TCP that Tor uses, so gateways act as blind KPS relays into the Tor network.",
     },
+    {
+      id: "nym",
+      label: "Nym — fetch over the Nym mixnet",
+      specifier: "0x3aCD9742C68F6d993066Ae25533e09b9e1f60eD0",
+      kind: "network",
+      url: "https://nym.com/",
+      note: "Runs a Nym mixnet client compiled to WebAssembly inside the sandbox. Requests travel as Sphinx packets through the mixnet and leave at a Nym IP Packet Router, so the RPC endpoint sees the router's address, not yours. The bundle is about 18 MB and the mixnet takes a few seconds to bootstrap.",
+    },
   ],
 
   // Wallets and apps shipping anon-rpc to users (the hosts of SPEC.md §2). None

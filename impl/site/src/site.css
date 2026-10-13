@@ -464,6 +464,8 @@ code {
 }
 /* Reads as a caveat, not a badge: a reference worker gives you no privacy. */
 .tag-muted { color: var(--text-muted); background: var(--surface); border-color: var(--border-strong); }
+/* A testnet deployment: real code, but not an address to ship to users. */
+.tag-warn { color: var(--warn); background: var(--surface); border-color: var(--warn); }
 
 .entry-meta { margin: 16px 0 0; display: grid; gap: 10px; }
 .entry-row { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }

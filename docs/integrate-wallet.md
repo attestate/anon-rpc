@@ -165,7 +165,8 @@ networks you can reach.
   normative behavior for everything above (§5 host API, §6 isolation, §12
   errors).
 - [Adopters](https://ethereum.github.io/anon-rpc/adopters/) — the anonymizing
-  networks live on mainnet today, with the specifier address for each.
+  networks live today, with the specifier address for each and the chain it
+  is published on.
 - [`@anon-rpc/browser-harness`](https://www.npmjs.com/package/@anon-rpc/browser-harness)
   — the harness package (README documents the full `WorkerInit`).
 - Networks: see [the network integration guide](integrate-network.md) for the

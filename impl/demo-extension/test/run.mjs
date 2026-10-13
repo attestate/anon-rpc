@@ -185,6 +185,9 @@ const server = createServer((req, res) => {
       res.writeHead(200, { ...cors, "content-type": "application/json" });
       res.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id ?? 1, result }));
     };
+    // The stub stands in for mainnet, where the passthrough preset lives; the
+    // service worker checks that before reading the specifier.
+    if (msg.method === "eth_chainId") return send("0x1");
     if (msg.method === "eth_call") {
       specifierReads++;
       const data = msg.params?.[0]?.data;

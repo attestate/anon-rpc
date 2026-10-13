@@ -32,6 +32,18 @@
       },
       exampleConfigNote: "Demonstration gateway only: limited capacity, and it may disappear at any time — run your own for anything real. Browsers cannot open the raw TCP that Tor uses, so gateways act as blind KPS relays into the Tor network.",
     },
+    {
+      id: "nox",
+      label: "Nox — fetch over a Sphinx mixnet",
+      specifier: "0xDf5Db854BA75B52a4bF1a250a93D8d25cB982b2d",
+      // Optional; absent means Ethereum mainnet (1). The chain the specifier
+      // contract lives on — so the chain a wallet's bootstrap RPC must read it
+      // from — not the chain the anonymized fetch can reach.
+      chainId: 11155111,
+      kind: "network",
+      url: "https://demo.nox.hisoka.io/anon-rpc",
+      note: "Wraps each request in Sphinx packets routed through entry, mix and exit nodes, dialled over KPS. TLS to an https RPC runs inside the worker, so the exit node relays the request without reading it. Mixing adds per-hop delay, so expect slower responses than a direct fetch.",
+    },
   ],
 
   // Wallets and apps shipping anon-rpc to users (the hosts of SPEC.md §2). None

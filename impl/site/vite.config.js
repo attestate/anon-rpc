@@ -55,6 +55,20 @@ const KNOWN_WORKERS = ADOPTERS_FILE.workers;
 // the first one does, which the /adopters/ page says in as many words.
 const WALLETS_AND_APPS = ADOPTERS_FILE.walletsAndApps ?? [];
 
+// The chains a specifier may be published on. An entry's `chainId` defaults to
+// mainnet; one not listed here fails the build rather than rendering a wrong
+// explorer link or a missing testnet badge.
+const CHAINS = {
+  1: { name: "mainnet", explorer: "https://etherscan.io" },
+  11155111: { name: "Sepolia", explorer: "https://sepolia.etherscan.io", testnet: true },
+};
+
+function chainOf(w) {
+  const chain = CHAINS[w.chainId ?? 1];
+  if (!chain) throw new Error(`adopters.json5 entry "${w.id}" has unknown chainId ${w.chainId}`);
+  return chain;
+}
+
 /** A config object as it would be written in the sample: JS literal, 2-space. */
 function configLiteral(config) {
   if (config === undefined) return "undefined";
@@ -83,7 +97,12 @@ function renderWorkerPicker(templateMd) {
   const template = fence[1];
   // `config:` here is the harness's own WorkerInit field (§7.1) — the API name
   // stays put; only the value substituted into it comes from exampleConfig.
-  for (const anchor of [`"${base.specifier}"`, `config: ${configLiteral(base.exampleConfig)},`]) {
+  const chainComment = (w) => `specifier contract, on ${chainOf(w).name}.`;
+  for (const anchor of [
+    `"${base.specifier}"`,
+    `config: ${configLiteral(base.exampleConfig)},`,
+    chainComment(base),
+  ]) {
     if (!template.includes(anchor)) {
       throw new Error(
         `WORKER_PICKER sample no longer matches adopters.json5 entry "${base.id}": ` +
@@ -107,9 +126,13 @@ function renderWorkerPicker(templateMd) {
       .replace(
         `config: ${configLiteral(base.exampleConfig)},`,
         `config: ${configLiteral(w.exampleConfig)},`,
-      );
+      )
+      .replace(chainComment(base), chainComment(w));
+    const chain = chainOf(w);
     const notes = [
       w.note && `<p class="picker-note">${esc(w.note)}</p>`,
+      chain.testnet &&
+        `<p class="picker-note warn">Published on the ${esc(chain.name)} testnet: <code>rpcProvider</code> must answer for ${esc(chain.name)}, or the specifier read finds no contract.</p>`,
       w.exampleConfigNote && `<p class="picker-note warn">${esc(w.exampleConfigNote)}</p>`,
     ]
       .filter(Boolean)
@@ -261,8 +284,6 @@ function renderNav(active) {
 // runtime JavaScript, so it is as fast and as scrapeable as the list is short.
 // ---------------------------------------------------------------------------
 
-const ETHERSCAN = "https://etherscan.io/address/";
-
 // "tor-js — fetch over Tor" carries two things the card wants apart: the name a
 // worker calls itself, and its one-line tagline. The dropdown label is the only
 // place both are written, so it stays the single source and is split here.
@@ -279,6 +300,9 @@ function workerCard(w) {
   const tag = reference
     ? `<span class="tag tag-muted">Reference worker</span>`
     : `<span class="tag">Anonymizing network</span>`;
+  // Likewise a testnet deployment: the address does nothing on mainnet.
+  const chain = chainOf(w);
+  const testnet = chain.testnet ? `<span class="tag tag-warn">${esc(chain.name)} testnet</span>` : "";
   const heading = w.url
     ? `<a href="${esc(w.url)}" target="_blank" rel="noopener">${esc(name)}</a>`
     : esc(name);
@@ -294,12 +318,12 @@ function workerCard(w) {
     ? `<p class="entry-warn">${esc(w.exampleConfigNote)}</p>`
     : "";
   return `<article class="card entry" id="worker-${esc(w.id)}">
-  <div class="entry-head"><h3>${heading}</h3>${tag}</div>
+  <div class="entry-head"><h3>${heading}</h3>${tag}${testnet}</div>
   ${tagline ? `<p class="entry-tagline">${esc(tagline)}</p>` : ""}
   <p>${esc(w.note ?? "")}</p>
   ${configNote}
   <dl class="entry-meta">
-    <div class="entry-row"><dt>Specifier</dt><dd><a class="mono addr" href="${ETHERSCAN}${esc(
+    <div class="entry-row"><dt>Specifier</dt><dd><a class="mono addr" href="${chain.explorer}/address/${esc(
       w.specifier,
     )}#readContract" target="_blank" rel="noopener">${esc(w.specifier)}</a></dd></div>
     ${config}
@@ -347,7 +371,7 @@ function renderAdopters() {
   <div class="section-head">
     <div class="eyebrow">Publishing a worker</div>
     <h2>Anonymizing networks</h2>
-    <p>Each entry is live on Ethereum mainnet. The specifier address is everything a wallet needs —
+    <p>Each entry is live on Ethereum mainnet unless badged as a testnet. The specifier address is everything a wallet needs —
     paste it into a harness and the pinned client code is fetched, hash-verified and sandboxed for you.</p>
   </div>
   <div class="entries">

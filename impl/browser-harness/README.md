@@ -106,6 +106,11 @@ placed at an opaque origin whichever route it came from, and §6 requires the UR
 to be same-origin with your page — a cross-origin bootstrap would hand the
 isolation boundary to a third party, so the harness rejects one.
 
+On Firefox, allow `data:` in the bootstrap page's `script-src` wherever a policy
+applies there: Firefox refuses `importScripts(blob:)` in an opaque-origin
+worker, so the harness loads the verified bundle from a `data:` URL instead (it
+detects this; other browsers keep using `blob:`).
+
 For MV3 browser extensions this is not optional and the page must additionally
 be declared in the manifest's `sandbox.pages`;
 [`@anon-rpc/browser-extension-harness`](../browser-extension-harness) packages
